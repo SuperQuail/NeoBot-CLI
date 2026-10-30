@@ -1,0 +1,9 @@
+async def test_exact_private_message_triggers_real_event_handler(loaded):
+    await loaded.message("早上好")
+    assert loaded.messages == ["测试回复"]
+
+
+async def test_other_text_and_group_message_do_not_trigger(loaded):
+    await loaded.message("早上好呀")
+    await loaded.message("早上好", kind="group")
+    assert loaded.messages == []

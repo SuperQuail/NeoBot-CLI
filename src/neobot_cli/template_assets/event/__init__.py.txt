@@ -1,0 +1,21 @@
+from pydantic import BaseModel, Field
+from neobot_modloader import Plugin, Reply
+
+
+class Config(BaseModel):
+    greeting: str = Field(default="早上好，今天也加油", title="回复内容", min_length=1, max_length=500)
+
+
+plugin = Plugin("__PLUGIN_NAME__", version="0.1.0", config=Config)
+
+
+@plugin.message(text="早上好", private=True, block=False)
+async def greet(reply: Reply, config: Config) -> None:
+    await reply.send(config.greeting)
+
+
+plugin.guide(
+    "first-use", title="设置消息事件回复",
+    steps=[{"target": "config.greeting", "text": "设置回复内容。机器人收到完全匹配“早上好”的私聊消息时回复，群聊和其他文本不会触发。", "example": {"greeting": "早上好，今天也加油"}}],
+    demo={"config": {"greeting": "早上好，今天也加油"}},
+)

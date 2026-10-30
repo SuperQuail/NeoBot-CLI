@@ -1,0 +1,11 @@
+# 插件开发约定
+
+- 这是当前 NeoBot 实例内的 Python 插件。先阅读 README.md、GUIDE.md 和现有处理器，使用实例已经安装的 SDK。
+- 入口只导出 `plugin = Plugin(...)`；不用旧的 setup、Matcher、on_command API。
+- 普通配置在 Pydantic Config 中声明，复用宿主表单；业务数据使用上下文 data_dir，不写回源码。
+- 聊天命令显式声明权限和中文说明。0 为所有人，1 为次级管理员，2 为超级管理员；按业务选择。
+- 页面动作经 plugin.action 注册；只通过宿主 _sdk.js 调用，不直接访问宿主 DOM、凭据或 HTTP 管理接口。
+- 页面复用 _ui.css 主题，尊重 available 和 suspended。后台任务由 ctx.create_task 托管，并在生命周期结束时清理。
+- plugin.contract.json 由实例 SDK export 生成；修改字段、动作或页面时同步教程引用。
+- 运行 neo plugin verify __PLUGIN_NAME__；业务测试使用合成端口执行真实 SDK 链路，不跳过失败或放宽断言。
+- 不提交真实凭据、账号和用户数据。只报告实际运行的验证命令与结果。

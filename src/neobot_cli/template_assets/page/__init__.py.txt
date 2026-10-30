@@ -1,0 +1,38 @@
+from pydantic import BaseModel, Field
+from neobot_modloader import Plugin
+from neobot_modloader.sdk import ActionInvocation
+
+
+class Config(BaseModel):
+    greeting: str = Field(default="你好", title="问候前缀", min_length=1, max_length=100)
+
+
+class GreetingInput(BaseModel):
+    name: str = Field(min_length=1, max_length=80, title="称呼")
+
+
+class GreetingOutput(BaseModel):
+    text: str
+
+
+plugin = Plugin("__PLUGIN_NAME__", version="0.1.0", config=Config)
+
+
+@plugin.action(
+    "greeting", input_model=GreetingInput, output_model=GreetingOutput,
+    title="预览问候", description="根据当前插件配置生成问候，不发送聊天消息", permission="read",
+)
+async def greeting(values: GreetingInput, invocation: ActionInvocation) -> GreetingOutput:
+    prefix = invocation.context.config.get("greeting", "你好")
+    return GreetingOutput(text=f"{prefix}，{values.name}")
+
+
+plugin.view("greeting", title="问候预览", entry="web/index.html", anchors=["preview"])
+plugin.guide(
+    "first-use", title="预览问候页面",
+    steps=[
+        {"target": "config.greeting", "text": "在配置表单设置问候前缀。", "example": {"greeting": "你好"}},
+        {"target": "view.greeting.preview", "text": "在插件页面输入称呼并预览，只生成文字，不发送聊天消息。", "example": {"name": "朋友"}},
+    ],
+    demo={"config": {"greeting": "你好"}, "actions": {"greeting": {"text": "你好，朋友"}}},
+)

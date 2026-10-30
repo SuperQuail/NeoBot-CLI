@@ -1,0 +1,29 @@
+[project]
+name = "neobot-cli"
+version = "0.1.0"
+description = "NeoBot 单实例开发工作台"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = ["textual>=6,<9", "packaging>=24,<27"]
+
+[project.scripts]
+neo = "neobot_cli.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=9,<10", "pytest-asyncio>=1,<2", "ruff>=0.15,<0.17"]
+
+[build-system]
+requires = ["uv_build>=0.9.27,<0.10"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

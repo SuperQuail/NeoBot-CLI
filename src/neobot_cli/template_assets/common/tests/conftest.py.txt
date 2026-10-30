@@ -1,0 +1,83 @@
+"""Only external ports are synthetic; plugin registration and handlers are real."""
+
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from neobot_modloader.context import RuntimePluginContext
+from neobot_modloader.hooks import PluginHookBus
+from neobot_modloader.loader import FilesystemPluginLoader
+
+
+class Adapter:
+    self_id = 10001
+
+    def __init__(self):
+        self.messages = []
+
+    async def send(self, conversation, message):
+        self.messages.append(message)
+        return "sample-message"
+
+
+class Commands:
+    def __init__(self):
+        self.items = {}
+
+    def register(self, command):
+        if command.name in self.items:
+            raise ValueError("duplicate command")
+        self.items[command.name] = command
+
+    def unregister(self, name):
+        return self.items.pop(name, None) is not None
+
+
+class Dispatch:
+    def __init__(self, text, kind):
+        self.raw_event = {
+            "post_type": "message", "message_type": kind,
+            "user_id": 10001, "group_id": 20001, "message": text,
+        }
+        self.consumed = False
+        self.skip_ai_reply = False
+
+    def consume(self):
+        self.consumed = True
+
+    def block_ai_reply(self):
+        self.skip_ai_reply = True
+
+
+@pytest.fixture
+async def loaded(tmp_path):
+    loader = FilesystemPluginLoader(namespace="neobot_template_test")
+    package = loader.load_one(Path(__file__).resolve().parents[1])
+    assert package is not None and getattr(package, "plugin", None) is not None
+    adapter = Adapter()
+    commands = Commands()
+    bus = PluginHookBus()
+    subscriptions = []
+    context = RuntimePluginContext(
+        plugin_name="__PLUGIN_NAME__", plugin_dir=package.plugin_dir,
+        data_dir=tmp_path, config={"greeting": "测试回复"}, logger=None,
+        adapter=adapter, app_commands=commands, hook_bus=bus,
+        record_subscription=subscriptions.append,
+    )
+
+    async def message(text, kind="private"):
+        await bus.dispatch(Dispatch(text, kind))
+
+    try:
+        await package.plugin.on_load(context)
+        await package.plugin.on_start()
+        yield SimpleNamespace(
+            plugin=package.plugin, context=context, commands=commands.items,
+            messages=adapter.messages, message=message,
+        )
+    finally:
+        for subscription in subscriptions:
+            subscription.unsubscribe()
+        context.app_commands.unregister_all()
+        await package.plugin.on_stop()
+        loader.clear_module_cache(package.module_names)

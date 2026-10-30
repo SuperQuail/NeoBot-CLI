@@ -1,0 +1,20 @@
+import pytest
+from neobot_modloader.sdk import ActionError, ActionInvocation
+
+
+async def test_page_action_uses_config_and_validated_name(loaded):
+    caller = ActionInvocation("template-test", frozenset({"read"}), context=loaded.context)
+    result = await loaded.plugin.surface.invoke(loaded.plugin, "greeting", {"name": "朋友"}, caller)
+    assert result == {"text": "测试回复，朋友"}
+    assert loaded.messages == []
+
+
+async def test_page_action_rejects_invalid_name_and_missing_permission(loaded):
+    caller = ActionInvocation("template-test", frozenset({"read"}), context=loaded.context)
+    with pytest.raises(ActionError) as failure:
+        await loaded.plugin.surface.invoke(loaded.plugin, "greeting", {"name": ""}, caller)
+    assert failure.value.code == "invalid_input"
+    anonymous = ActionInvocation("template-test", frozenset(), context=loaded.context)
+    with pytest.raises(ActionError) as failure:
+        await loaded.plugin.surface.invoke(loaded.plugin, "greeting", {"name": "朋友"}, anonymous)
+    assert failure.value.code == "permission_denied"

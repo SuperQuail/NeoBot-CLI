@@ -1,0 +1,24 @@
+from pydantic import BaseModel, Field
+from neobot_modloader import Plugin, Reply
+
+
+class Config(BaseModel):
+    greeting: str = Field(default="你好，NeoBot", title="回复内容", min_length=1, max_length=500)
+
+
+plugin = Plugin("__PLUGIN_NAME__", version="0.1.0", config=Config)
+
+
+@plugin.command("hello", permission=0, description="发送本插件配置的问候")
+async def hello(reply: Reply, config: Config) -> None:
+    await reply.send(config.greeting)
+
+
+plugin.guide(
+    "first-use", title="设置问候语",
+    steps=[
+        {"target": "config.greeting", "text": "在配置表单填写问候，保存后查看生效通知。", "example": {"greeting": "你好，NeoBot"}},
+        {"target": "config.greeting", "text": "在机器人私聊发送 /hello。重名时先在 /help 核对实际命令名。", "command": {"text": "/hello", "context": "机器人私聊", "reply": "你好，NeoBot"}},
+    ],
+    demo={"config": {"greeting": "你好，NeoBot"}},
+)

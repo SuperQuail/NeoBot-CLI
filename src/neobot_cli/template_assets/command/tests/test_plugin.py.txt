@@ -1,0 +1,12 @@
+from types import SimpleNamespace
+
+
+async def test_hello_uses_saved_config_through_registered_command(loaded):
+    command = loaded.commands["hello"]
+    assert command.permission == 0
+    assert command.source == "__PLUGIN_NAME__"
+    await command.handler(SimpleNamespace(
+        kind="private", user_id=10001, conv_id="10001", raw_args="", command=command,
+        message={"post_type": "message", "message_type": "private", "user_id": 10001, "message": "/hello"},
+    ))
+    assert loaded.messages == ["测试回复"]

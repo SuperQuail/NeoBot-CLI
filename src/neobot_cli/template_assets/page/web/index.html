@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>问候预览</title>
+  <link rel="stylesheet" href="_ui.css">
+  <script src="_sdk.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <main class="nb-view nb-stack">
+    <div class="nb-field">
+      <label for="name">怎么称呼你</label>
+      <input id="name" maxlength="80" value="朋友" autocomplete="off">
+    </div>
+    <div id="preview" class="nb-stack">
+      <div class="nb-actions"><button id="greet" type="button" class="nb-primary" disabled>预览问候</button></div>
+      <output id="result" aria-live="polite"></output>
+    </div>
+  </main>
+</body>
+</html>

@@ -1,0 +1,9 @@
+name = "__PLUGIN_NAME__"
+version = "0.1.0"
+description = "我的 NeoBot 插件"
+hot_reload = true
+python_dependencies = ["pydantic>=2,<3"]
+
+[sdk]
+version = 1
+contract = "plugin.contract.json"
