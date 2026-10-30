@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import codecs
+import io
 import os
 from pathlib import Path
 import signal
@@ -50,7 +51,10 @@ def run_streamed(command: list[str], *, cwd, env: dict, timeout: float, sink: Pr
             )
             try:
                 outputs: list[list[str]] = [[], []]
-                decoders = [codecs.getincrementaldecoder("utf-8")("replace") for _ in paths]
+                decoders = [
+                    io.IncrementalNewlineDecoder(codecs.getincrementaldecoder("utf-8")("replace"), translate=True)
+                    for _ in paths
+                ]
                 with paths[0].open("rb") as first, paths[1].open("rb") as second:
                     while True:
                         finished = child.poll() is not None

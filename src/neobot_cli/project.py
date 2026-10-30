@@ -65,7 +65,9 @@ def uv_command() -> str:
 
 def run_uv(project: Workspace, arguments: list[str], *, timeout: float = 600) -> subprocess.CompletedProcess:
     environment = os.environ.copy()
-    environment.update(NEOBOT_DATA_DIR=str(project.data_dir), NEOBOT_ENV_FILE=str(project.env_file))
+    environment.update(
+        NEOBOT_DATA_DIR=str(project.data_dir), NEOBOT_ENV_FILE=str(project.env_file), PYTHONIOENCODING="utf-8"
+    )
     # Never inherit the tool's activated environment into the user's instance.
     environment.pop("VIRTUAL_ENV", None)
     try:

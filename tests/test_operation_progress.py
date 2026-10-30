@@ -123,3 +123,25 @@ def test_exited_parent_cannot_leave_ui_waiting_for_inherited_child_output(tmp_pa
     assert result.returncode == 0
     assert result.stdout == "parent done\n"
     assert time.monotonic() - started < 1.5
+
+
+@pytest.mark.parametrize("streamed", [False, True])
+def test_captured_text_uses_utf8_and_universal_newlines(tmp_path, monkeypatch, streamed):
+    from contextlib import nullcontext
+
+    workspace = create_project(tmp_path / "bot", sync=False)
+    monkeypatch.setattr("neobot_cli.project.uv_command", lambda: sys.executable)
+    monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
+    script = (
+        "import sys; sys.stdout.write('中文\\n'); sys.stdout.flush(); "
+        "sys.stdout.buffer.write(b'first\\r\\nsecond\\rthird\\n'); "
+        "sys.stderr.write('依赖')"
+    )
+    events = []
+    with report_to(events.append) if streamed else nullcontext():
+        result = run_uv(workspace, ["-u", "-c", script])
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "中文\nfirst\nsecond\nthird\n"
+    assert result.stderr == "依赖"
+    if streamed:
+        assert "中文" in "".join(event.message for event in events)
