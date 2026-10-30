@@ -378,15 +378,19 @@ class WorkbenchApp(App[None]):
 
     def action_focus_plugins(self) -> None:
         if self.backend.project is not None:
-            self.query_one("#plugin-table", DataTable).focus()
+            self._focus_panel("#plugin-table", "#plugin-section")
 
     def action_focus_editor(self) -> None:
         if self.backend.project is not None:
-            self.query_one("#plugin-name", Input).focus()
+            self._focus_panel("#plugin-name", "#plugin-editor")
 
     def action_focus_output(self) -> None:
         if self.backend.project is not None or self.query_one("#workspace").has_class("has-output"):
-            self.query_one("#result-log", RichLog).focus()
+            self._focus_panel("#result-log", "#result-pane")
+
+    def _focus_panel(self, control: str, panel: str) -> None:
+        self.query_one(control).focus(scroll_visible=False)
+        self.call_after_refresh(self.query_one(panel).scroll_visible, animate=False, immediate=True)
 
     def action_close_workbench(self) -> None:
         if self._busy:

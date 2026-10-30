@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import threading
 
 import pytest
@@ -151,8 +152,12 @@ async def test_empty_workbench_shows_validation_and_adoption_progress_beside_the
 
 
 @pytest.mark.parametrize("size", [(48, 20), (32, 20)])
-async def test_failed_adoption_keeps_complete_error_log_visible_and_focusable(tmp_path, size):
+@pytest.mark.parametrize("project_path", [None, r"C:\Users\Neo Bot\我的机器人", r"\\server\Neo Share\我的机器人"])
+async def test_failed_adoption_keeps_complete_error_log_visible_and_focusable(
+    tmp_path, size, project_path, monkeypatch
+):
     backend = FakeWorkbench(tmp_path / "我的机器人", selected=False)
+    project_path = project_path or str(backend.root)
     message = "无法接入当前目录，请确认这里包含有效的NeoBot工程配置，修正目录后可以直接重试，无需退出控制台。"
     hint = "检查工程配置文件和当前用户对目录的读取权限。"
     detail = "没有找到pyproject.toml或neobot.toml，请检查目录结构和工程文件。"
@@ -164,20 +169,38 @@ async def test_failed_adoption_keeps_complete_error_log_visible_and_focusable(tm
     backend.adopt_project = failed_adopt
     app = WorkbenchApp(backend)
     async with app.run_test(size=size) as pilot:
-        app.query_one("#project-path", Input).value = str(backend.root)
+        log = app.query_one("#result-log", RichLog)
+        payloads = []
+        write = log.write
+
+        def record_write(content, *args, **kwargs):
+            if isinstance(content, str) and content.startswith("{"):
+                payloads.append(json.loads(content))
+            return write(content, *args, **kwargs)
+
+        monkeypatch.setattr(log, "write", record_write)
+        app.query_one("#project-path", Input).value = project_path
         assert await pilot.click("#adopt-project")
         await app.workers.wait_for_complete()
         await pilot.press("f8")
         await pilot.pause()
-        log = app.query_one("#result-log", RichLog)
         assert app.focused is log
         assert backend.project is None
         assert app.last_error == message
         assert_in_viewport(app, "#result-pane", "#operation-state", "#result-log")
         assert app.query_one("#workspace").max_scroll_y > 0
         assert log.max_scroll_x == 0
+        assert payloads == [
+            {
+                "code": "PROJECT_UNAVAILABLE",
+                "message": message,
+                "hint": hint,
+                "details": {"stderr": detail, "path": project_path},
+            }
+        ]
         rendered_text = "".join("".join(line.text.split()) for line in log.lines)
-        for text in (message, hint, detail, str(backend.root)):
+        encoded_path = json.dumps(project_path, ensure_ascii=False)[1:-1]
+        for text in (message, hint, detail, "".join(encoded_path.split())):
             assert text in rendered_text
 
 
