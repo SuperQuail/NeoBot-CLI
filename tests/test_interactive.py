@@ -39,13 +39,28 @@ def test_create_template_and_develop_use_same_instance_and_exit_keeps_bot(tmp_pa
 
 
 @pytest.mark.parametrize("empty", ["", "   "])
-def test_blank_creation_path_uses_visible_home_default(tmp_path, monkeypatch, empty):
-    monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    backend = FakeWorkbench(tmp_path, selected=False)
+def test_blank_creation_path_uses_visible_home_default(monkeypatch, empty):
+    home = Path(Path.cwd().anchor) / "__neo_menu_test_home__"
+    monkeypatch.setattr(Path, "home", lambda: home)
+    backend = FakeWorkbench(home, selected=False)
     text = session(backend, f"1\n{empty}\n0\n", width=120)
-    assert backend.calls == [("create_project", str(tmp_path / "NeoBot"))]
-    assert str(tmp_path / "NeoBot") in text
-    assert not (tmp_path / "NeoBot").exists()
+    assert backend.calls == [("create_project", str(home / "NeoBot"))]
+    assert str(home / "NeoBot") in text
+    assert not (home / "NeoBot").exists()
+
+
+@pytest.mark.parametrize("width", [32, 80])
+def test_long_default_path_wraps_without_losing_text_or_changing_value(tmp_path, width):
+    default = str(tmp_path / ("long-home-" * 12) / "NeoBot")
+    output = StringIO()
+    menu = Menu(
+        FakeWorkbench(tmp_path, selected=False),
+        console=Console(file=output, width=width, force_terminal=False),
+        stream=StringIO("\n"),
+    )
+    assert menu.ask("实例目录", default=default) == default
+    assert default not in output.getvalue()  # This case must actually exercise wrapping.
+    assert default in output.getvalue().replace("\n", "")
 
 
 @pytest.mark.parametrize("answers", ["0\n", "1\n:q\n0\n", "2\n:q\n0\n", ""])
