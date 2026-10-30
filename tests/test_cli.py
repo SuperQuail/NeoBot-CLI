@@ -80,3 +80,23 @@ def test_adopt_command_repairs_moved_instance_from_inside_it(tmp_path, capsys, m
     monkeypatch.chdir(moved)
     assert main(["project", "adopt", ".", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["data"]["root"] == str(moved)
+
+
+@pytest.mark.parametrize(("arguments", "expected"), [(["plugin", "templates", "--json"], 0), (["--json"], 2)])
+def test_json_survives_non_utf8_output_encoding(arguments, expected):
+    import os
+
+    result = subprocess.run(
+        [sys.executable, "-m", "neobot_cli", *arguments],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONIOENCODING": "cp1252"},
+    )
+    assert result.returncode == expected, result.stderr
+    result.stdout.encode("ascii")
+    report = json.loads(result.stdout)
+    assert report["ok"] is (expected == 0)
+    if expected == 0:
+        assert report["data"]["templates"][0]["title"] == "聊天命令"
+    else:
+        assert report["error"]["code"] == "COMMAND_REQUIRED"
