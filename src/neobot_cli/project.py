@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 import tomllib
@@ -81,8 +82,8 @@ def run_uv(project: Workspace, arguments: list[str], *, timeout: float = 600) ->
         raise CliError("PROCESS_TIMEOUT", "操作超时，请查看实例日志后重试。") from exc
 
 
-def write_marker(project: Workspace) -> None:
-    marker = project.root / MARKER
+def write_marker(project: Workspace, *, directory: Path | None = None) -> None:
+    marker = (directory if directory is not None else project.root) / MARKER
     marker.parent.mkdir(parents=True, exist_ok=True)
     document = {"schema_version": 1, **project.to_dict()}
     with tempfile.NamedTemporaryFile("w", dir=marker.parent, encoding="utf-8", delete=False) as output:
@@ -140,10 +141,114 @@ def adopt_project(path: str | Path) -> Workspace:
     return project
 
 
+def _creation_target(root: Path) -> os.stat_result | None:
+    try:
+        state = root.lstat()
+        if not stat.S_ISDIR(state.st_mode):
+            kind = "符号链接" if stat.S_ISLNK(state.st_mode) else "文件或其他非目录项"
+            raise CliError(
+                "PROJECT_EXISTS",
+                f"目标路径是{kind}，不能创建工程。",
+                hint="请选择真实的空目录，或输入一个尚不存在的新目录路径。",
+            )
+        if next(root.iterdir(), None) is not None:
+            if (root / "pyproject.toml").exists() or (root / MARKER).exists():
+                raise CliError(
+                    "PROJECT_EXISTS",
+                    "目标目录已存在工程，请使用“接入已有工程”。",
+                    hint="返回首页选择“接入已有工程”，或运行 neo project adopt <工程目录>。",
+                )
+            raise CliError(
+                "PROJECT_EXISTS",
+                "目标目录已存在且非空，不能创建工程。",
+                hint="请选择空目录，或在当前目录下输入一个新的子目录路径。",
+            )
+        return state
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise CliError(
+            "PROJECT_PATH_INVALID",
+            "无法访问目标目录。",
+            hint="请检查路径及目录权限，选择可读写的空目录或新的子目录。",
+        ) from exc
+
+
+def _same_entry(path: Path, expected: os.stat_result) -> bool:
+    try:
+        actual = path.lstat()
+    except OSError:
+        return False
+    return (actual.st_dev, actual.st_ino, actual.st_mode) == (
+        expected.st_dev,
+        expected.st_ino,
+        expected.st_mode,
+    )
+
+
+def _publish_project(staging: Path, root: Path, original: os.stat_result | None) -> None:
+    changed = CliError(
+        "PROJECT_EXISTS",
+        "目标目录在创建期间发生变化，已保留其他内容。",
+        hint="请检查该目录，选择空目录或新的子目录后重新创建。",
+    )
+    directories: dict[Path, os.stat_result] = {}
+    files: list[tuple[Path, os.stat_result, Path, bool]] = []
+
+    def parents_intact(path: Path) -> bool:
+        return all(_same_entry(parent, state) for parent, state in directories.items() if parent in path.parents)
+
+    try:
+        current = _creation_target(root)
+        if original is None:
+            if current is not None:
+                raise changed
+            root.mkdir()
+        elif current is None or not _same_entry(root, original):
+            raise changed
+        directories[root] = root.lstat()
+        # The marker becomes visible only after all other project files are ready.
+        for item in sorted(staging.rglob("*"), key=lambda path: (path == staging / MARKER, path)):
+            target = root / item.relative_to(staging)
+            if not all(_same_entry(directory, state) for directory, state in directories.items()):
+                raise changed
+            if item.is_dir():
+                target.mkdir()
+                directories[target] = target.lstat()
+            else:
+                # Exclusive creation also rejects files or links arriving after the empty check.
+                with item.open("rb") as source, target.open("xb") as output:
+                    state = os.fstat(output.fileno())
+                    files.append((target, state, item, False))
+                    shutil.copyfileobj(source, output)
+                files[-1] = (target, state, item, True)
+    except Exception as exc:
+        # Only undo entries we created. Never recurse through user additions or replaced directories.
+        for target, state, item, complete in reversed(files):
+            if parents_intact(target) and _same_entry(target, state):
+                try:
+                    actual, expected = target.read_bytes(), item.read_bytes()
+                    # Preserve user edits to our files too, even if the inode has not changed.
+                    if actual == expected or (not complete and expected.startswith(actual)):
+                        target.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        for target, state in reversed(directories.items()):
+            if target == root and original is not None:
+                continue
+            if parents_intact(target) and _same_entry(target, state):
+                try:
+                    target.rmdir()
+                except OSError:
+                    pass  # A concurrent addition must keep its containing directory alive.
+        if isinstance(exc, FileExistsError):
+            raise changed from exc
+        raise
+
+
 def create_project(path: str | Path, *, source: Path | None = None, sync: bool = True) -> Workspace:
     root = Path(path).expanduser().absolute()
-    if root.exists() or root.is_symlink():
-        raise CliError("PROJECT_EXISTS", "目标目录已存在；已有实例请使用接管操作。")
+    original = _creation_target(root)
     if source is not None:
         source = Path(source).resolve()
         if not (source / "app/pyproject.toml").is_file():
@@ -182,19 +287,9 @@ def create_project(path: str | Path, *, source: Path | None = None, sync: bool =
             "插件在 data/plugins/ 创建，配置和数据属于同一个实例。\n",
             encoding="utf-8",
         )
-        try:
-            root.mkdir()
-        except FileExistsError as exc:
-            raise CliError("PROJECT_EXISTS", "目标目录已存在。") from exc
-        try:
-            shutil.copytree(staging, root, dirs_exist_ok=True)
-            project = Workspace(
-                root.resolve(), (root / "data").resolve(), (root / "data/plugins").resolve(), root / ".env"
-            )
-            write_marker(project)
-        except Exception:
-            shutil.rmtree(root)
-            raise
+        project = Workspace(root.resolve(), (root / "data").resolve(), (root / "data/plugins").resolve(), root / ".env")
+        write_marker(project, directory=staging)
+        _publish_project(staging, root, original)
     if sync:
         result = run_uv(project, ["sync", "--project", str(project.root)])
         if result.returncode:

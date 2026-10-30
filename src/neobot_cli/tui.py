@@ -17,6 +17,7 @@ from textual.widgets import Button, DataTable, Footer, Input, Label, RichLog, Se
 
 from .errors import CliError
 from .presentation import format_result
+from .setup_details import SetupDetailsScreen
 
 
 class WorkbenchBackend(Protocol):
@@ -79,6 +80,7 @@ class WorkbenchApp(App[None]):
         self._plugin_rows: tuple[tuple[str, str, str], ...] = ()
         self._poll_error = ""
         self.last_error = ""
+        self._setup_result: tuple[str, str] | None = None
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="topbar"):
@@ -88,13 +90,15 @@ class WorkbenchApp(App[None]):
         with VerticalScroll(id="workspace", classes="no-project"):
             with Vertical(id="project-section"):
                 yield Label("接入你的 NeoBot", id="project-heading")
-                yield Static("选择已有工程，或在新目录创建。", id="project-hint", markup=False)
+                yield Static("新目录或空目录可创建，已有工程请接入。", id="project-hint", markup=False)
                 yield Static(id="instance-path", markup=False)
-                yield Input(placeholder="例如 ~/NeoBot，创建时请选择新目录", id="project-path")
-                yield Static(id="project-status", markup=False)
+                yield Input(value=str(Path.home() / "NeoBot"), placeholder="实例目录", id="project-path")
+                with Horizontal(id="setup-feedback"):
+                    yield Static(id="project-status", markup=False)
+                    yield Button("查看详情", id="setup-details", classes="compact")
                 with Horizontal(id="project-actions"):
-                    yield Button("接入已有工程", id="adopt-project", classes="compact primary")
-                    yield Button("创建新工程", id="create-project", classes="compact")
+                    yield Button("创建工程", id="create-project", classes="compact primary")
+                    yield Button("接入已有工程", id="adopt-project", classes="compact")
             with Horizontal(id="instance-actions"):
                 yield Button("启动", id="start", classes="compact primary")
                 yield Button("停止", id="stop", classes="compact")
@@ -154,19 +158,20 @@ class WorkbenchApp(App[None]):
         path.tooltip = str(project.root) if selected else None
         self.query_one("#project-path", Input).display = not selected
         self.query_one("#project-actions").display = not selected
-        if selected:
-            self.query_one("#project-status").display = False
         self._set_controls()
 
     def _show_setup_status(self, message: str, *, error: bool = False) -> None:
         status = self.query_one("#project-status", Static)
         status.update(message)
-        status.display = bool(message)
+        status.tooltip = message or None
         status.set_class(error, "error")
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id == "project-path":
+        if event.input.id == "project-path" and not self._busy:
             self._show_setup_status("")
+            self.last_error = ""
+            self._setup_result = None
+            self.query_one("#setup-details").styles.visibility = "hidden"
         elif event.input.id == "plugin-name":
             self._update_plugin_context()
 
@@ -186,8 +191,8 @@ class WorkbenchApp(App[None]):
     def _set_controls(self) -> None:
         selected = self.backend.project is not None
         for widget in self.query(Button):
-            needs_project = widget.id not in {"create-project", "adopt-project"}
-            writes_instance = widget.id not in {"refresh", "show-logs"}
+            needs_project = widget.id not in {"create-project", "adopt-project", "setup-details"}
+            writes_instance = widget.id not in {"refresh", "show-logs", "setup-details"}
             widget.disabled = self._busy or (needs_project and not selected) or (writes_instance and self._stopping)
         for widget in self.query(Input):
             widget.disabled = self._busy
@@ -260,12 +265,13 @@ class WorkbenchApp(App[None]):
         self._update_plugin_context()
 
     def _write_result(self, label: str, result: Any) -> None:
+        if self.backend.project is None:
+            self._setup_result = (label, format_result(result))
+            self.query_one("#setup-details").styles.visibility = "visible"
+            return
         self.query_one("#workspace").add_class("has-output")
         self.query_one("#result-empty").display = False
-        if self.backend.project is None:
-            self.call_after_refresh(self._append_result, label, result)
-        else:
-            self._append_result(label, result)
+        self._append_result(label, result)
 
     def _append_result(self, label: str, result: Any) -> None:
         log = self.query_one("#result-log", RichLog)
@@ -334,7 +340,10 @@ class WorkbenchApp(App[None]):
             self.last_error = str(exc)
             self.query_one("#operation-state", Static).update(f"失败：{exc}")
             if self.backend.project is None:
-                self._show_setup_status(str(exc), error=True)
+                message = str(exc)
+                if isinstance(exc, CliError) and exc.hint:
+                    message += f"\n{exc.hint}"
+                self._show_setup_status(message, error=True)
             self._write_result(f"{label}失败", self._error_details(exc))
         finally:
             self._busy = False
@@ -342,8 +351,14 @@ class WorkbenchApp(App[None]):
             self._poll_status()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "setup-details":
+            self._show_setup_details()
+            return
         name = self.query_one("#plugin-name", Input).value.strip()
         path = self.query_one("#project-path", Input).value.strip()
+        if event.button.id == "create-project" and not path:
+            path = str(Path.home() / "NeoBot")
+            self.query_one("#project-path", Input).value = path
         template = str(self.query_one("#template", Select).value)
         actions: dict[str, tuple[str, Callable[[], Any]]] = {
             "create-project": ("创建工程", lambda: self.backend.create_project(path)),
@@ -385,8 +400,17 @@ class WorkbenchApp(App[None]):
             self._focus_panel("#plugin-name", "#plugin-editor")
 
     def action_focus_output(self) -> None:
-        if self.backend.project is not None or self.query_one("#workspace").has_class("has-output"):
+        if self.backend.project is None:
+            self._show_setup_details()
+        else:
             self._focus_panel("#result-log", "#result-pane")
+
+    def _show_setup_details(self) -> None:
+        if not self._busy and self._setup_result is not None:
+            self.push_screen(
+                SetupDetailsScreen(*self._setup_result),
+                lambda _: self.query_one("#project-path", Input).focus(scroll_visible=False),
+            )
 
     def _focus_panel(self, control: str, panel: str) -> None:
         self.query_one(control).focus(scroll_visible=False)

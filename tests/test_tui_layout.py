@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import threading
+from pathlib import Path
 
 import pytest
-from textual.widgets import DataTable, Input, RichLog, Static
+from textual.screen import ModalScreen
+from textual.widgets import Button, DataTable, Input, RichLog, Static
 
 from neobot_cli.errors import CliError
 from neobot_cli.presentation import format_result
@@ -34,11 +36,35 @@ WORKBENCH_CONTROLS = (
     "#result-log",
 )
 
+SETUP_GEOMETRY = (
+    "#project-section",
+    "#project-heading",
+    "#project-hint",
+    "#project-path",
+    "#project-status",
+    "#project-actions",
+    "#adopt-project",
+    "#create-project",
+    "#setup-details",
+)
+
+
+def setup_geometry(app: WorkbenchApp) -> dict:
+    """Include reserved status and details space even when they have no content."""
+    geometry = {selector: app.query_one(selector).region for selector in SETUP_GEOMETRY}
+    details = app.query_one("#setup-details", Button)
+    feedback = details.parent
+    assert feedback is not None
+    # Hidden widgets have no compositor region, but still have a layout placement.
+    placement = next(item for item in feedback.arrange(feedback.container_size).placements if item.widget is details)
+    geometry["#setup-details"] = placement.region + feedback.content_region.offset - feedback.scroll_offset
+    return geometry
+
 
 def assert_in_viewport(app: WorkbenchApp, *selectors: str) -> None:
     """Check actual geometry; a hidden control or a clipped edge is a failure."""
     for selector in selectors:
-        widget = app.query_one(selector)
+        widget = app.screen.query_one(selector)
         assert widget.is_on_screen, selector
         assert widget.region.width > 0 and widget.region.height > 0, (selector, widget.region)
         assert app.screen.region.contains_region(widget.region), (selector, widget.region, app.screen.region)
@@ -93,6 +119,39 @@ async def test_empty_workbench_shows_a_compact_setup_instead_of_disabled_panels(
         assert not app.query_one("#template").is_on_screen
         assert not app.query_one("#plugin-table").is_on_screen
         assert app.query_one("#workspace").max_scroll_y == 0
+        assert app.query_one("#project-status").region.height == 2
+        details = app.query_one("#setup-details", Button)
+        assert details.display
+        assert details.styles.visibility == "hidden"
+        details_region = setup_geometry(app)["#setup-details"]
+        assert details_region.width > 0 and details_region.height > 0
+
+
+@pytest.mark.parametrize("size", [(100, 30), (48, 20), (32, 20)])
+@pytest.mark.parametrize("entered_path", [None, "", "   "])
+async def test_setup_prefills_home_and_creating_with_empty_input_uses_that_default(
+    tmp_path, monkeypatch, size, entered_path
+):
+    home = tmp_path / "用户 Home"
+    default_path = home / "NeoBot"
+    monkeypatch.setattr(Path, "home", lambda: home)
+    backend = FakeWorkbench(tmp_path / "unused", selected=False)
+    app = WorkbenchApp(backend)
+    async with app.run_test(size=size) as pilot:
+        await pilot.pause()
+        project_path = app.query_one("#project-path", Input)
+        assert project_path.value == str(default_path)
+        assert_in_viewport(app, "#project-path", "#project-status", "#create-project", "#adopt-project")
+        if entered_path is not None:
+            project_path.value = entered_path
+            await pilot.pause()
+        assert await pilot.click("#create-project")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert backend.calls == [("create_project", str(default_path))]
+        assert project_path.value == str(default_path)
+        assert backend.project.root == default_path
+        assert not default_path.exists()
 
 
 async def test_adopting_an_instance_reveals_the_single_page_without_scrolling(tmp_path):
@@ -108,7 +167,8 @@ async def test_adopting_an_instance_reveals_the_single_page_without_scrolling(tm
         assert not app.query_one("#project-actions").is_on_screen
 
 
-async def test_empty_workbench_shows_validation_and_adoption_progress_beside_the_path(tmp_path):
+@pytest.mark.parametrize("size", [(100, 30), (48, 20), (32, 20)])
+async def test_empty_workbench_keeps_setup_geometry_during_validation_progress_and_input_changes(tmp_path, size):
     backend = FakeWorkbench(tmp_path / "我的机器人", selected=False)
     entered = threading.Event()
     release = threading.Event()
@@ -121,19 +181,30 @@ async def test_empty_workbench_shows_validation_and_adoption_progress_beside_the
 
     backend.adopt_project = slow_adopt
     app = WorkbenchApp(backend)
-    async with app.run_test(size=(100, 30)) as pilot:
+    async with app.run_test(size=size) as pilot:
         try:
-            assert await pilot.click("#create-project")
+            await pilot.pause()
+            geometry = setup_geometry(app)
+            project_path = app.query_one("#project-path", Input)
+            project_path.value = ""
+            await pilot.pause()
+            assert setup_geometry(app) == geometry
+            assert await pilot.click("#adopt-project")
             await pilot.pause()
             status = app.query_one("#project-status", Static)
-            assert app.last_error
+            assert app.last_error == "请先填写实例目录"
             assert app.last_error in str(status.render())
             assert_in_viewport(app, "#project-status", "#project-path", "#create-project", "#adopt-project")
+            assert status.region.height == 2
+            assert setup_geometry(app) == geometry
+            assert not app.query_one("#result-pane").is_on_screen
+            assert not app.query_one("#workspace").has_class("has-output")
             assert backend.calls == []
 
-            app.query_one("#project-path", Input).value = str(backend.root)
+            project_path.value = str(backend.root)
             await pilot.pause()
             assert not str(status.render()).strip()
+            assert setup_geometry(app) == geometry
             assert backend.calls == []
             assert not entered.is_set()
 
@@ -143,18 +214,20 @@ async def test_empty_workbench_shows_validation_and_adoption_progress_beside_the
             assert not app.last_error
             assert backend.project is None
             assert_in_viewport(app, "#project-status")
+            assert setup_geometry(app) == geometry
         finally:
             release.set()
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert ("adopt_project", str(backend.root)) in backend.calls
         assert not status.is_on_screen
-        assert_single_page(app)
+        if size[0] >= 96:
+            assert_single_page(app)
 
 
-@pytest.mark.parametrize("size", [(48, 20), (32, 20)])
+@pytest.mark.parametrize("size", [(100, 30), (48, 20), (32, 20)])
 @pytest.mark.parametrize("project_path", [None, r"C:\Users\Neo Bot\我的机器人", r"\\server\Neo Share\我的机器人"])
-async def test_failed_adoption_keeps_complete_error_log_visible_and_focusable(
+async def test_failed_adoption_keeps_setup_still_and_complete_error_available_in_details(
     tmp_path, size, project_path, monkeypatch
 ):
     backend = FakeWorkbench(tmp_path / "我的机器人", selected=False)
@@ -170,7 +243,8 @@ async def test_failed_adoption_keeps_complete_error_log_visible_and_focusable(
     backend.adopt_project = failed_adopt
     app = WorkbenchApp(backend)
     async with app.run_test(size=size) as pilot:
-        log = app.query_one("#result-log", RichLog)
+        await pilot.pause()
+        geometry = setup_geometry(app)
         payloads = []
 
         def record_result(result):
@@ -184,13 +258,21 @@ async def test_failed_adoption_keeps_complete_error_log_visible_and_focusable(
         app.query_one("#project-path", Input).value = project_path
         assert await pilot.click("#adopt-project")
         await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert setup_geometry(app) == geometry
+        assert not app.query_one("#result-pane").is_on_screen
+        assert not app.query_one("#workspace").has_class("has-output")
+        assert app.query_one("#project-status").region.height == 2
+        assert_in_viewport(app, "#project-path", "#create-project", "#adopt-project", "#setup-details")
         await pilot.press("f8")
         await pilot.pause()
+        assert isinstance(app.screen, ModalScreen)
+        assert type(app.screen).__name__ == "SetupDetailsScreen"
+        log = app.screen.query_one("#setup-details-log", RichLog)
         assert app.focused is log
         assert backend.project is None
         assert app.last_error == message
-        assert_in_viewport(app, "#result-pane", "#operation-state", "#result-log")
-        assert app.query_one("#workspace").max_scroll_y > 0
+        assert_in_viewport(app, "#setup-details-log", "#close-setup-details")
         assert log.max_scroll_x == 0
         assert payloads == [
             {
@@ -204,6 +286,78 @@ async def test_failed_adoption_keeps_complete_error_log_visible_and_focusable(
         encoded_path = json.dumps(project_path, ensure_ascii=False)[1:-1]
         for text in (message, hint, detail, "".join(encoded_path.split())):
             assert text in rendered_text
+        assert await pilot.click("#close-setup-details")
+        await pilot.pause()
+        assert not isinstance(app.screen, ModalScreen)
+        assert app.query_one("#project-path", Input).value == project_path
+        assert setup_geometry(app) == geometry
+
+
+@pytest.mark.parametrize("size", [(100, 30), (48, 20), (32, 20)])
+async def test_long_setup_details_scroll_and_escape_restores_form_for_successful_retry(tmp_path, size):
+    backend = FakeWorkbench(tmp_path / "corrected project", selected=False)
+    adopt_project = backend.adopt_project
+    initial_path = r"C:\Users\Neo Bot\错误工程"
+    detail_lines = [f"第{index:03}行：错误目录中的配置无法读取，请检查工程目录。" for index in range(80)]
+    artifact = r"\\server\Neo Share\很长的工程路径\resources\generated\artifacts\project-preview.json"
+    details = "\n".join([*detail_lines, artifact])
+
+    def adopt_after_correction(path):
+        if str(path) == initial_path:
+            backend.calls.append(("adopt_project", str(path)))
+            raise CliError("INVALID_PROJECT", "当前目录不是有效的 NeoBot 工程", details={"stderr": details})
+        return adopt_project(path)
+
+    backend.adopt_project = adopt_after_correction
+    app = WorkbenchApp(backend)
+    async with app.run_test(size=size) as pilot:
+        project_path = app.query_one("#project-path", Input)
+        project_path.value = initial_path
+        assert await pilot.click("#adopt-project")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        geometry = setup_geometry(app)
+        project_path.focus()
+        project_path.cursor_position = 7
+        await pilot.pause()
+        cursor_position = project_path.cursor_position
+        workspace = app.query_one("#workspace")
+        scroll_offset = workspace.scroll_offset
+        assert await pilot.click("#setup-details")
+        await pilot.pause()
+        assert isinstance(app.screen, ModalScreen)
+        log = app.screen.query_one("#setup-details-log", RichLog)
+        assert log.max_scroll_y > 0
+        assert log.max_scroll_x == 0
+        assert_in_viewport(app, "#setup-details-log", "#close-setup-details")
+        rendered_text = "".join("".join(line.text.split()) for line in log.lines)
+        assert detail_lines[0] in rendered_text
+        assert detail_lines[-1] in rendered_text
+        assert "".join(json.dumps(artifact, ensure_ascii=False)[1:-1].split()) in rendered_text
+        log.scroll_home(animate=False)
+        await pilot.pause()
+        await pilot.press("end")
+        await pilot.pause()
+        assert log.scroll_y > 0
+        assert log.scroll_y == log.max_scroll_y
+        assert log.max_scroll_x == 0
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, ModalScreen)
+        assert app.focused is project_path
+        assert project_path.value == initial_path
+        assert project_path.cursor_position == cursor_position
+        assert workspace.scroll_offset == scroll_offset
+        assert setup_geometry(app) == geometry
+        await pilot.press("ctrl+shift+a", *str(backend.root))
+        assert project_path.value == str(backend.root)
+        assert await pilot.click("#adopt-project")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert backend.calls == [("adopt_project", initial_path), ("adopt_project", str(backend.root))]
+        assert backend.project.root == backend.root
+        assert not app.last_error
+        assert not app.query_one("#project-actions").is_on_screen
 
 
 async def test_tiny_header_keeps_version_status_visible_beside_brand(tmp_path):
