@@ -211,7 +211,14 @@ async def test_reload_failure_is_visible_and_plugin_can_be_selected(tmp_path):
         backend.plugins[0]["reload"] = {"status": "failed", "error": "源码导入失败，旧版本继续运行"}
         await pilot.press("f5")
         await app.workers.wait_for_complete()
-        assert table.get_row_at(0) == ["hello", "running", "开发中 · failed：源码导入失败，旧版本继续运行"]
+        row = table.get_row_at(0)
+        assert row[0] == "hello"
+        assert str(row[1]) == "异常"
+        context = str(app.query_one("#plugin-context", Static).render())
+        assert "hello · running" in context
+        assert "开发中 · failed：源码导入失败，旧版本继续运行" in context
+        log = app.query_one("#result-log", RichLog)
+        assert "源码导入失败，旧版本继续运行" in "".join(line.text for line in log.lines)
         assert "正在运行" in str(app.query_one("#instance-state", Static).render())
 
 
