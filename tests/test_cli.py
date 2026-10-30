@@ -100,3 +100,30 @@ def test_json_survives_non_utf8_output_encoding(arguments, expected):
         assert report["data"]["templates"][0]["title"] == "聊天命令"
     else:
         assert report["error"]["code"] == "COMMAND_REQUIRED"
+
+
+@pytest.mark.parametrize("arguments", [[], ["tui"]])
+def test_interactive_entry_uses_rich_menu_without_importing_textual(arguments, monkeypatch):
+    from neobot_cli import interactive
+
+    calls = []
+    monkeypatch.setattr("neobot_cli.cli._interactive", lambda: True)
+    monkeypatch.setattr("neobot_cli.workbench.Workbench", lambda *args, **kwargs: "selected-instance")
+    monkeypatch.setattr(interactive, "run_menu", calls.append)
+    assert main(arguments) == 0
+    assert calls == ["selected-instance"]
+    assert "textual" not in sys.modules
+
+
+def test_explicit_json_commands_do_not_load_interactive_renderer():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from neobot_cli.cli import main; import sys; main(['plugin','templates','--json']); assert 'neobot_cli.interactive' not in sys.modules; assert 'textual' not in sys.modules",
+        ],
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["ok"]

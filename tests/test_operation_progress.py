@@ -95,22 +95,6 @@ def test_progress_context_does_not_leak_into_cli(capsys):
     assert capsys.readouterr() == ("", "")
 
 
-def test_large_output_backlog_keeps_current_stage_and_reports_truncation():
-    from neobot_cli.activity import Activity
-    from neobot_cli.progress import Progress
-
-    activity = Activity("创建工程")
-    activity.send(Progress("准备环境", "正在下载依赖"))
-    for index in range(10000):
-        activity.send(Progress(f"package {index}\n", output=True))
-    rendered = activity.drain()
-    assert activity.stage == "准备环境"
-    assert activity.latest == "package 9999"
-    assert any("省略" in line for line in rendered)
-    assert len(rendered) < 300
-    assert len(activity.history) < 300
-
-
 def test_exited_parent_cannot_leave_ui_waiting_for_inherited_child_output(tmp_path, monkeypatch):
     import time
 

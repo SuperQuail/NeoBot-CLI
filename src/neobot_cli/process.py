@@ -74,7 +74,7 @@ def start(project: Workspace, *, timeout: float = 45) -> dict:
                 **options,
             )
         deadline = time.monotonic() + timeout
-        stage("等待机器人就绪", "正在启动实例，准备控制服务；启动失败可在概览中读取机器人日志。")
+        stage("等待机器人就绪", "正在启动实例，准备控制服务；启动失败可从“更多操作 → 查看日志”读取机器人日志。")
         while time.monotonic() < deadline:
             try:
                 return client.status()
