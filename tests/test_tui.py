@@ -89,6 +89,11 @@ async def wait_until(predicate) -> None:
 
 
 async def click_visible(app, pilot, selector):
+    control = app.query_one(selector)
+    if any(node.id == "plugins-page" for node in control.ancestors):
+        await pilot.press("f6")
+    elif any(node.id == "overview-page" for node in control.ancestors):
+        await pilot.press("f4")
     app.query_one(selector).scroll_visible(animate=False, immediate=True)
     await pilot.pause()
     assert await pilot.click(selector)
@@ -107,6 +112,7 @@ async def test_create_choose_template_and_develop_same_instance(tmp_path):
         assert str(backend.root) in str(app.query_one("#instance-path", Static).render())
         await click_visible(app, pilot, "#start")
         await app.workers.wait_for_complete()
+        await pilot.press("f7")
         template = app.query_one("#template", Select)
         template.scroll_visible(animate=False, immediate=True)
         template.focus()
@@ -204,6 +210,7 @@ async def test_reload_failure_is_visible_and_plugin_can_be_selected(tmp_path):
     app = WorkbenchApp(backend)
     async with app.run_test() as pilot:
         await app.workers.wait_for_complete()
+        await pilot.press("f6")
         table = app.query_one("#plugin-table", DataTable)
         table.scroll_visible(animate=False, immediate=True)
         table.focus()
@@ -218,6 +225,7 @@ async def test_reload_failure_is_visible_and_plugin_can_be_selected(tmp_path):
         context = str(app.query_one("#plugin-context", Static).render())
         assert "hello · running" in context
         assert "开发中 · failed：源码导入失败，旧版本继续运行" in context
+        await pilot.press("f8")
         log = app.query_one("#result-log", RichLog)
         assert "源码导入失败，旧版本继续运行" in "".join(line.text for line in log.lines)
         assert "正在运行" in str(app.query_one("#instance-state", Static).render())
@@ -245,6 +253,7 @@ async def test_creation_sync_failure_retains_project_and_can_retry_sync(tmp_path
         await app.workers.wait_for_complete()
         assert app.last_error == "工程已创建，依赖下载失败"
         assert not app.query_one("#project-actions").display
+        await pilot.press("f8")
         log = app.query_one("#result-log", RichLog)
         visible_log = "\n".join(line.text for line in log.lines)
         assert "检查网络后点击同步环境" in visible_log

@@ -7,9 +7,12 @@ from pathlib import Path
 
 from .errors import CliError
 from .project import Workspace, run_uv
+from .progress import stage
 
 
 def sdk_command(project: Workspace, command: str, path: Path, *options: str) -> dict:
+    labels = {"check": "检查插件声明", "export": "导出插件契约", "build": "构建插件", "smoke": "验证插件加载"}
+    stage(labels.get(command, command), "使用当前实例的 Python 环境执行。")
     result = run_uv(
         project,
         [
@@ -50,6 +53,7 @@ def verify(project: Workspace, path: Path) -> dict:
     artifact_dir.mkdir(parents=True, exist_ok=True)
     test_report = artifact_dir / "tests.json"
     test_report.unlink(missing_ok=True)
+    stage("运行插件测试", "执行插件自带的业务测试。")
     result = run_uv(
         project,
         [

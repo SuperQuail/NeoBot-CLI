@@ -16,25 +16,20 @@ from neobot_cli.tui import WorkbenchApp
 from test_tui import FakeWorkbench, wait_until
 
 
-WORKBENCH_CONTROLS = (
-    "#instance-path",
-    "#instance-state",
-    "#start",
-    "#stop",
-    "#refresh",
-    "#show-logs",
-    "#sync-environment",
-    "#template",
-    "#plugin-name",
-    "#create-plugin",
-    "#develop-plugin",
-    "#check-plugin",
-    "#end-development",
-    "#plugin-context",
-    "#plugin-table",
-    "#operation-state",
-    "#result-log",
-)
+PAGE_CONTROLS = {
+    "overview": ("#start", "#stop", "#refresh", "#show-logs", "#sync-environment", "#go-plugins"),
+    "plugins": (
+        "#template",
+        "#plugin-name",
+        "#create-plugin",
+        "#develop-plugin",
+        "#check-plugin",
+        "#end-development",
+        "#plugin-context",
+        "#plugin-table",
+    ),
+    "activity": ("#result-log",),
+}
 
 SETUP_GEOMETRY = (
     "#project-section",
@@ -74,26 +69,21 @@ def assert_in_viewport(app: WorkbenchApp, *selectors: str) -> None:
         assert widget.region.bottom <= app.size.height - 1, (selector, widget.region)
 
 
-def assert_single_page(app: WorkbenchApp) -> None:
-    assert_in_viewport(app, *WORKBENCH_CONTROLS)
-    workspace = app.query_one("#workspace")
-    assert workspace.max_scroll_y == 0
-    assert workspace.max_scroll_x == 0
-    assert workspace.scroll_y == 0
-    plugin_pane = app.query_one("#plugin-section")
-    editor_pane = app.query_one("#plugin-editor")
-    result_pane = app.query_one("#result-pane")
-    assert_in_viewport(app, "#plugin-section", "#plugin-editor", "#result-pane")
-    assert plugin_pane.region.right <= editor_pane.region.x
-    assert plugin_pane.region.right <= result_pane.region.x
-    assert editor_pane.region.bottom <= result_pane.region.y
-    assert app.query_one("#plugin-table", DataTable).region.height >= 4
+async def assert_pages(app, pilot) -> None:
+    for page, controls in PAGE_CONTROLS.items():
+        assert await pilot.click(f"#nav-{page}")
+        await pilot.pause()
+        assert_in_viewport(app, "#instance-path", "#instance-state", "#operation-state", *controls)
+        assert app.query_one("#workspace").max_scroll_x == 0
+        assert app.query_one("#workspace").max_scroll_y == 0
+        for other in PAGE_CONTROLS:
+            assert app.query_one(f"#{other}-page").is_on_screen == (other == page)
     assert app.query_one("#result-log", RichLog).region.height >= 5
 
 
 @pytest.mark.parametrize("size", [(100, 30), (120, 36)])
 @pytest.mark.parametrize("running", [False, True])
-async def test_selected_instance_keeps_controls_plugins_and_logs_on_one_page(tmp_path, size, running):
+async def test_selected_instance_has_separate_navigable_pages_with_visible_controls(tmp_path, size, running):
     backend = FakeWorkbench(tmp_path / "我的机器人")
     backend.running = running
     backend.plugins = [{"name": "hello", "state": "running", "development": running}]
@@ -101,7 +91,7 @@ async def test_selected_instance_keeps_controls_plugins_and_logs_on_one_page(tmp
     async with app.run_test(size=size) as pilot:
         await app.workers.wait_for_complete()
         await pilot.pause()
-        assert_single_page(app)
+        await assert_pages(app, pilot)
         assert ("正在运行" if running else "尚未运行") in str(app.query_one("#instance-state", Static).render())
 
 
@@ -154,7 +144,7 @@ async def test_setup_prefills_home_and_creating_with_empty_input_uses_that_defau
         assert not default_path.exists()
 
 
-async def test_adopting_an_instance_reveals_the_single_page_without_scrolling(tmp_path):
+async def test_adopting_an_instance_reveals_overview_and_other_pages(tmp_path):
     backend = FakeWorkbench(tmp_path / "我的机器人", selected=False)
     app = WorkbenchApp(backend)
     async with app.run_test(size=(100, 30)) as pilot:
@@ -163,7 +153,7 @@ async def test_adopting_an_instance_reveals_the_single_page_without_scrolling(tm
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert ("adopt_project", str(backend.root)) in backend.calls
-        assert_single_page(app)
+        await assert_pages(app, pilot)
         assert not app.query_one("#project-actions").is_on_screen
 
 
@@ -222,7 +212,7 @@ async def test_empty_workbench_keeps_setup_geometry_during_validation_progress_a
         assert ("adopt_project", str(backend.root)) in backend.calls
         assert not status.is_on_screen
         if size[0] >= 96:
-            assert_single_page(app)
+            await assert_pages(app, pilot)
 
 
 @pytest.mark.parametrize("size", [(100, 30), (48, 20), (32, 20)])
@@ -382,7 +372,7 @@ async def test_long_instance_path_does_not_push_workbench_below_the_viewport(tmp
     async with app.run_test(size=(100, 30)) as pilot:
         await app.workers.wait_for_complete()
         await pilot.pause()
-        assert_single_page(app)
+        await assert_pages(app, pilot)
         path = app.query_one("#instance-path", Static)
         assert path.region.height <= 2
         assert str(root) in str(path.render()) or str(root) in str(path.tooltip)
@@ -401,16 +391,19 @@ async def test_plugin_and_log_scroll_stays_inside_their_panes(tmp_path):
         assert await pilot.click("#show-logs")
         await app.workers.wait_for_complete()
         await pilot.pause()
+        await pilot.press("f6")
         table = app.query_one("#plugin-table", DataTable)
-        log = app.query_one("#result-log", RichLog)
         assert table.max_scroll_y > 0
-        assert log.max_scroll_y > 0
         table.scroll_end(animate=False)
-        log.scroll_end(animate=False)
         await pilot.pause()
         assert table.scroll_y > 0
+        await pilot.press("f8")
+        log = app.query_one("#result-log", RichLog)
+        assert log.max_scroll_y > 0
+        log.scroll_end(animate=False)
+        await pilot.pause()
         assert log.scroll_y > 0
-        assert_single_page(app)
+        await assert_pages(app, pilot)
 
 
 async def test_narrow_log_pane_wraps_and_retains_chinese_summary_and_artifact_path(tmp_path):
@@ -433,7 +426,7 @@ async def test_narrow_log_pane_wraps_and_retains_chinese_summary_and_artifact_pa
         rendered_text = "".join("".join(line.text.split()) for line in log.lines)
         assert summary in rendered_text
         assert artifact in rendered_text
-        assert_single_page(app)
+        await assert_pages(app, pilot)
 
 
 @pytest.mark.parametrize("narrow_size", [(60, 24), (48, 20), (32, 20)])
@@ -444,20 +437,19 @@ async def test_resize_to_narrow_and_back_preserves_accessible_controls(tmp_path,
     async with app.run_test(size=(120, 36)) as pilot:
         await app.workers.wait_for_complete()
         await pilot.pause()
-        assert_single_page(app)
+        await assert_pages(app, pilot)
         await pilot.resize_terminal(*narrow_size)
         await pilot.pause()
-        plugin = app.query_one("#plugin-section")
-        result = app.query_one("#result-pane")
-        assert plugin.region.y < result.region.y
-        # Scrolling is only allowed for this explicitly narrow fallback.
-        for selector in WORKBENCH_CONTROLS:
-            app.query_one(selector).scroll_visible(animate=False, immediate=True)
+        for page, controls in PAGE_CONTROLS.items():
+            assert await pilot.click(f"#nav-{page}")
             await pilot.pause()
-            assert_in_viewport(app, selector)
+            for selector in controls:
+                app.query_one(selector).scroll_visible(animate=False, immediate=True)
+                await pilot.pause()
+                assert_in_viewport(app, selector)
         await pilot.resize_terminal(120, 36)
         await pilot.pause()
-        assert_single_page(app)
+        await assert_pages(app, pilot)
         assert app.query_one("#plugin-table", DataTable).get_row_at(0)[0] == "hello"
 
 
@@ -488,4 +480,4 @@ async def test_panel_shortcuts_focus_plugins_editor_and_output(tmp_path, size):
         assert app.focused is app.query_one("#result-log", RichLog)
         assert_in_viewport(app, "#result-log")
         if size[0] >= 96:
-            assert_single_page(app)
+            await assert_pages(app, pilot)

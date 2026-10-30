@@ -10,6 +10,7 @@ from packaging.requirements import Requirement
 from . import process, project, sdk, templates
 from .control import ControlClient
 from .errors import CliError
+from .progress import stage
 
 
 class Workbench:
@@ -65,11 +66,19 @@ class Workbench:
     def status(self) -> dict:
         workspace = self._project()
         try:
-            return ControlClient(workspace).status()
+            result = ControlClient(workspace).status()
         except CliError as error:
             if error.code not in {"HOST_OFFLINE", "HOST_UNAVAILABLE"}:
                 raise
-            return {"running": False, **workspace.to_dict(), "plugins": [], "reason": error.code}
+            result = {"running": False, **workspace.to_dict(), "plugins": [], "reason": error.code}
+        # A plugin exists before the host loads it, and while the host is offline.
+        plugins = {item["name"]: item for item in result.get("plugins", [])}
+        for path in sorted(workspace.plugin_dir.glob("*/plugin.toml")):
+            if path.parent.is_symlink():
+                continue
+            name = path.parent.name
+            plugins.setdefault(name, {"name": name, "state": "unloaded", "development": False})
+        return {**result, "plugins": [plugins[name] for name in sorted(plugins)]}
 
     def start(self) -> dict:
         return process.start(self._project())
@@ -82,6 +91,7 @@ class Workbench:
 
     def create_plugin(self, name: str, template: str = "command") -> dict:
         workspace = self._project()
+        stage("生成插件模板", "文件将写入当前实例的插件目录。")
         try:
             path = templates.create_plugin(workspace.plugin_dir, name, template)
         except (ValueError, OSError) as exc:
@@ -118,6 +128,7 @@ class Workbench:
 
     def sync(self) -> dict:
         workspace = self._project()
+        stage("检查实例与依赖", "先确认机器人已停止，再读取插件的依赖声明。")
         if self.status()["running"]:
             raise CliError("HOST_RUNNING", "请先停止实例再同步 Python 依赖；普通代码修改仍可直接热重载。")
         # Keep runtime requirements declared in uv, so exact sync cannot erase them.
@@ -139,6 +150,7 @@ class Workbench:
             arguments = ["add", "--project", str(workspace.root), *sorted(requirements)]
         else:
             arguments = ["sync", "--project", str(workspace.root)]
+        stage("同步 Python 环境", "正在解析、下载或安装依赖；首次运行可能需要几分钟。")
         result = project.run_uv(workspace, arguments)
         if result.returncode:
             raise CliError(
