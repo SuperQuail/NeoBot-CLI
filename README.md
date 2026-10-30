@@ -17,7 +17,7 @@ neo
 uvx --from git+https://github.com/SuperQuail/NeoBot-CLI.git neo
 ```
 
-仓库当前为私有，需要已配置的 GitHub 访问权限。源码开发时运行 `uv sync --locked`，再 `uv run neo`。
+源码开发时运行 `uv sync --locked`，再 `uv run neo`。
 
 首次选择“创建工程”，填写一个新目录。工具准备实例的 Python 环境、配置与数据目录；随后启动机器人。
 已使用 NeoBot 的用户选择“接入已有工程”，不会改写已有配置和数据。当前目录和子目录会识别所属实例，其他目录启动时使用最近接入的默认实例，界面始终显示实际路径。
