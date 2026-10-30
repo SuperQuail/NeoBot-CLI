@@ -10,11 +10,11 @@ def test_creates_three_different_local_templates(tmp_path):
         path = create_plugin(tmp_path / "plugins", f"sample_{template['id']}", template["id"])
         assert (path / "plugin.toml").is_file()
         assert (path / "tests/test_plugin.py").is_file()
-        assert "__PLUGIN_NAME__" not in (path / "__init__.py").read_text()
+        assert "__PLUGIN_NAME__" not in (path / "__init__.py").read_text(encoding="utf-8")
         assert not (path / ".venv").exists()
-        compile((path / "__init__.py").read_text(), str(path / "__init__.py"), "exec")
-    assert "@plugin.command" in (tmp_path / "plugins/sample_command/__init__.py").read_text()
-    assert "@plugin.message" in (tmp_path / "plugins/sample_event/__init__.py").read_text()
+        compile((path / "__init__.py").read_text(encoding="utf-8"), str(path / "__init__.py"), "exec")
+    assert "@plugin.command" in (tmp_path / "plugins/sample_command/__init__.py").read_text(encoding="utf-8")
+    assert "@plugin.message" in (tmp_path / "plugins/sample_event/__init__.py").read_text(encoding="utf-8")
     assert (tmp_path / "plugins/sample_page/web/app.js").is_file()
 
 
@@ -33,7 +33,7 @@ def test_never_overwrites_existing_plugin_or_symlink(tmp_path):
     source.write_text("keep me")
     with pytest.raises(ValueError):
         create_plugin(tmp_path, "hello", "page")
-    assert source.read_text() == "keep me"
+    assert source.read_text(encoding="utf-8") == "keep me"
     outside = tmp_path / "outside"
     outside.mkdir()
     link = tmp_path / "linked"

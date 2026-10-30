@@ -159,13 +159,13 @@ def main(argv: list[str] | None = None) -> int:
         data = _dispatch(arguments, root)
         if data is not None:
             if machine:
-                print(json.dumps({"schema_version": 1, "ok": True, "data": data}, ensure_ascii=False))
+                print(json.dumps({"schema_version": 1, "ok": True, "data": data}, ensure_ascii=True))
             else:
                 print(json.dumps(data, ensure_ascii=False, indent=2))
         return 0
     except CliError as error:
         if machine:
-            print(json.dumps({"schema_version": 1, "ok": False, "error": error.to_dict()}, ensure_ascii=False))
+            print(json.dumps({"schema_version": 1, "ok": False, "error": error.to_dict()}, ensure_ascii=True))
         else:
             print(str(error), file=sys.stderr)
             if error.hint:
@@ -176,7 +176,7 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError) as error:
         public = CliError("OPERATION_FAILED", str(error))
         if machine:
-            print(json.dumps({"schema_version": 1, "ok": False, "error": public.to_dict()}, ensure_ascii=False))
+            print(json.dumps({"schema_version": 1, "ok": False, "error": public.to_dict()}, ensure_ascii=True))
         else:
             print(str(public), file=sys.stderr)
         return 1
