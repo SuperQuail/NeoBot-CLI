@@ -253,7 +253,15 @@ def create_project(path: str | Path, *, source: Path | None = None, sync: bool =
         source = Path(source).resolve()
         if not (source / "app/pyproject.toml").is_file():
             raise CliError("SOURCE_INVALID", "NeoBot 源码目录缺少 app/pyproject.toml。")
-    root.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        root.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise CliError(
+            "PROJECT_PATH_INVALID",
+            "无法创建目标目录的父目录。",
+            hint="请检查路径及目录权限，选择可读写的空目录或新的子目录。",
+            details={"path": str(root.parent), "error": str(exc)},
+        ) from exc
     # Generate privately, then publish without overwriting an existing target.
     with tempfile.TemporaryDirectory(prefix=".neo-new-", dir=root.parent) as directory:
         staging = Path(directory)

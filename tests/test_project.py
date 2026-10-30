@@ -103,6 +103,47 @@ def test_path_under_file_is_reported_as_invalid(tmp_path):
     assert parent.read_text() == "original"
 
 
+@pytest.mark.parametrize("failure", ["file_parent", "permission_denied"])
+def test_parent_creation_failure_after_missing_target_is_reported_as_invalid(tmp_path, monkeypatch, failure):
+    parent = tmp_path / "parent"
+    if failure == "file_parent":
+        parent.write_text("original")
+    else:
+        parent.mkdir()
+    root = parent / "bot"
+    original_lstat, original_mkdir = Path.lstat, Path.mkdir
+    original_errors = []
+
+    def missing_target(path, *args, **kwargs):
+        if path == root:
+            # Windows reports this even when an intermediate component is a regular file.
+            raise FileNotFoundError(2, "No such file or directory", str(root))
+        return original_lstat(path, *args, **kwargs)
+
+    def create_parent(path, *args, **kwargs):
+        try:
+            if path == parent and failure == "permission_denied":
+                raise PermissionError(13, "Permission denied", str(parent))
+            return original_mkdir(path, *args, **kwargs)
+        except OSError as exc:
+            original_errors.append(exc)
+            raise
+
+    monkeypatch.setattr(Path, "lstat", missing_target)
+    monkeypatch.setattr(Path, "mkdir", create_parent)
+    with pytest.raises(CliError) as error:
+        create_project(root, sync=False)
+    assert error.value.code == "PROJECT_PATH_INVALID"
+    assert "路径" in error.value.hint
+    assert "空目录" in error.value.hint
+    assert error.value.details == {"path": str(parent), "error": str(original_errors[-1])}
+    assert error.value.__cause__ is original_errors[-1]
+    if failure == "file_parent":
+        assert parent.read_text() == "original"
+    else:
+        assert list(parent.iterdir()) == []
+
+
 @pytest.mark.parametrize("existing", [False, True])
 def test_generation_failure_preserves_original_directory(tmp_path, monkeypatch, existing):
     root = tmp_path / "bot"
