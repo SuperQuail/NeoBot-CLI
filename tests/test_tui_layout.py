@@ -9,6 +9,7 @@ import pytest
 from textual.widgets import DataTable, Input, RichLog, Static
 
 from neobot_cli.errors import CliError
+from neobot_cli.presentation import format_result
 from neobot_cli.tui import WorkbenchApp
 from test_tui import FakeWorkbench, wait_until
 
@@ -171,14 +172,15 @@ async def test_failed_adoption_keeps_complete_error_log_visible_and_focusable(
     async with app.run_test(size=size) as pilot:
         log = app.query_one("#result-log", RichLog)
         payloads = []
-        write = log.write
 
-        def record_write(content, *args, **kwargs):
-            if isinstance(content, str) and content.startswith("{"):
+        def record_result(result):
+            content = format_result(result)
+            if isinstance(result, dict) and "code" in result:
                 payloads.append(json.loads(content))
-            return write(content, *args, **kwargs)
+            return content
 
-        monkeypatch.setattr(log, "write", record_write)
+        # Observe app output once; RichLog may replay deferred writes after layout.
+        monkeypatch.setattr("neobot_cli.tui.format_result", record_result)
         app.query_one("#project-path", Input).value = project_path
         assert await pilot.click("#adopt-project")
         await app.workers.wait_for_complete()
