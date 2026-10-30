@@ -373,3 +373,21 @@ def test_invalid_source_leaves_no_project(tmp_path):
     with pytest.raises(CliError):
         create_project(tmp_path / "bot", source=Path("/nonexistent-neobot-source"), sync=False)
     assert not (tmp_path / "bot").exists()
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_interrupted_file_publication_rolls_back_only_its_own_files(tmp_path, monkeypatch, existing):
+    root = tmp_path / "bot"
+    if existing:
+        root.mkdir()
+
+    def interrupt(source, output):
+        output.write(source.read(4))
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("neobot_cli.project.shutil.copyfileobj", interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        create_project(root, sync=False)
+    assert root.exists() == existing
+    if existing:
+        assert list(root.iterdir()) == []

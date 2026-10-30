@@ -1,4 +1,4 @@
-"""命令行、Textual 共用的单实例工作流。"""
+"""命令行与交互菜单共用的单实例工作流。"""
 
 from __future__ import annotations
 
@@ -48,15 +48,22 @@ class Workbench:
     def create_project(self, path: str | Path, *, sync: bool = True) -> dict:
         try:
             self.project = project.create_project(path, source=self.source, sync=sync)
+        except KeyboardInterrupt:
+            self._retain_created_project(path)
+            raise
         except CliError as error:
             # A sync failure retains a usable project for a subsequent retry.
             if error.code == "SYNC_FAILED":
-                self.project = project.discover_project(path)
-                if self.project is not None:
-                    project.remember_project(self.project)
+                self._retain_created_project(path)
             raise
         project.remember_project(self.project)
         return self.project.to_dict()
+
+    def _retain_created_project(self, path: str | Path) -> None:
+        created = project.discover_project(path)
+        if created is not None and created.root == Path(path).expanduser().resolve():
+            self.project = created
+            project.remember_project(created)
 
     def adopt_project(self, path: str | Path) -> dict:
         self.project = project.adopt_project(path)

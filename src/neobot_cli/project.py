@@ -89,7 +89,7 @@ def run_uv(project: Workspace, arguments: list[str], *, timeout: float = 600) ->
             timeout=timeout,
         )
     except subprocess.TimeoutExpired as exc:
-        raise CliError("PROCESS_TIMEOUT", "操作超时。", hint="请查看活动输出，检查网络或依赖后重试。") from exc
+        raise CliError("PROCESS_TIMEOUT", "操作超时。", hint="请查看上方输出，检查网络或依赖后重试。") from exc
 
 
 def write_marker(project: Workspace, *, directory: Path | None = None) -> None:
@@ -232,7 +232,7 @@ def _publish_project(staging: Path, root: Path, original: os.stat_result | None)
                     files.append((target, state, item, False))
                     shutil.copyfileobj(source, output)
                 files[-1] = (target, state, item, True)
-    except Exception as exc:
+    except BaseException as exc:
         # Only undo entries we created. Never recurse through user additions or replaced directories.
         for target, state, item, complete in reversed(files):
             if parents_intact(target) and _same_entry(target, state):
@@ -303,7 +303,7 @@ def create_project(path: str | Path, *, source: Path | None = None, sync: bool =
         (staging / ".env").write_text("# 在现有面板中配置平台连接与模型。\n", encoding="utf-8")
         (staging / ".gitignore").write_text(".venv/\n.env\ndata/\n.neobot/\n", encoding="utf-8")
         (staging / "README.md").write_text(
-            "# 我的 NeoBot\n\n运行 `neo` 打开工作台；`neo start` 启动当前实例。\n"
+            "# 我的 NeoBot\n\n运行 `neo` 打开交互菜单；`neo start` 启动当前实例。\n"
             "插件在 data/plugins/ 创建，配置和数据属于同一个实例。\n",
             encoding="utf-8",
         )
@@ -318,14 +318,14 @@ def create_project(path: str | Path, *, source: Path | None = None, sync: bool =
             raise CliError(
                 "SYNC_FAILED",
                 "工程已创建，但环境准备未完成。",
-                hint="工程文件已保留；检查网络和 uv 后，点击“同步环境”重试。",
+                hint="工程文件已保留；检查网络和 uv 后，选择“更多操作 → 同步环境”重试。",
                 details={"root": str(root), "cause": exc.to_dict() if isinstance(exc, CliError) else str(exc)},
             ) from exc
         if result.returncode:
             raise CliError(
                 "SYNC_FAILED",
                 "工程已创建，但环境准备失败。可修正网络或依赖后执行 neo sync。",
-                hint="无需重新创建；点击“同步环境”即可重试。",
+                hint="无需重新创建；选择“更多操作 → 同步环境”即可重试。",
                 details={"root": str(root), "stderr": result.stderr[-4000:]},
             )
     return project

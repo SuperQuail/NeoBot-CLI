@@ -1,4 +1,4 @@
-"""工作台中的简明操作结果；命令行机器报告仍由原入口输出。"""
+"""交互菜单中的简明操作结果；命令行机器报告仍由原入口输出。"""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def format_result(result: Any) -> str:
     if result.get("synced"):
         return f"环境已同步 · {len(result.get('requirements', []))} 项插件依赖"
     if "template" in result and "name" in result:
-        return f"已创建 {result['name']}\n{result.get('path', '')}\n点击“开启开发”，保存源码后自动重载。"
+        return f"已创建 {result['name']}\n{result.get('path', '')}\n从主菜单选择“开发插件”，开启后保存源码会自动重载。"
     if "root" in result or "path" in result:
         return f"实例目录：{result.get('root', result.get('path'))}"
     return json.dumps(result, ensure_ascii=False, indent=2, default=str)

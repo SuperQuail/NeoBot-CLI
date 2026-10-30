@@ -1,4 +1,4 @@
-"""显式命令直达；只有交互终端无参数才进入 Textual。"""
+"""显式命令直达；只有交互终端无参数才进入菜单。"""
 
 from __future__ import annotations
 
@@ -27,12 +27,12 @@ def _common(parser: argparse.ArgumentParser):
 
 
 def parser() -> Parser:
-    result = Parser(prog="neo", description="NeoBot 单实例开发工作台；无参数在交互终端打开 Textual。")
+    result = Parser(prog="neo", description="NeoBot 单实例开发工作台；无参数在交互终端打开编号菜单。")
     result.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     _common(result)
     commands = result.add_subparsers(dest="command")
     for name, help_text in {
-        "tui": "打开交互工作台",
+        "tui": "打开交互菜单（兼容入口）",
         "start": "启动或连接当前实例",
         "stop": "停止当前实例",
         "status": "查询实例与开发监听状态",
@@ -115,10 +115,10 @@ def _dispatch(arguments, root):
     )
     if arguments.command == "tui":
         if getattr(arguments, "no_input", False) or getattr(arguments, "json", False) or not _interactive():
-            raise CliError("TTY_REQUIRED", "Textual 需要可交互终端；自动化请使用明确子命令。")
-        from .tui import run_tui
+            raise CliError("TTY_REQUIRED", "交互菜单需要可交互终端；自动化请使用明确子命令。")
+        from .interactive import run_menu
 
-        run_tui(backend)
+        run_menu(backend)
         return None
     if arguments.command == "project":
         if arguments.project_command == "new":

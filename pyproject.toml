@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "NeoBot 单实例开发工作台"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = ["textual>=6,<9", "packaging>=24,<27"]
+dependencies = ["rich>=14,<16", "packaging>=24,<27"]
 
 [project.scripts]
 neo = "neobot_cli.cli:main"
