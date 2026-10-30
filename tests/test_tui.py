@@ -167,7 +167,8 @@ async def test_empty_fields_never_call_backend_and_small_terminal_can_reach_acti
     backend = FakeWorkbench(tmp_path, selected=False)
     app = WorkbenchApp(backend)
     async with app.run_test(size=(48, 20)) as pilot:
-        await click_visible(app, pilot, "#create-project")
+        app.query_one("#project-path", Input).value = ""
+        await click_visible(app, pilot, "#adopt-project")
         assert app.last_error == "请先填写实例目录"
         assert not backend.calls
         app.query_one("#project-path", Input).value = str(tmp_path)

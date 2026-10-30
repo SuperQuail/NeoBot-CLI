@@ -17,13 +17,15 @@ Screen { background: $background; }
 #instance-path { height: 1; text-overflow: ellipsis; text-wrap: nowrap; color: $text-muted; }
 .no-project #instance-path { display: none; }
 #project-path { height: 3; margin-bottom: 1; }
-#project-status { display: none; height: auto; max-height: 3; margin-bottom: 1; color: $primary; }
+#setup-feedback { height: 2; }
+#project-status { width: 1fr; min-width: 0; height: 2; color: $primary; text-overflow: ellipsis; }
 #project-status.error { color: $error; }
+#setup-details { visibility: hidden; width: 10; min-width: 8; margin: 0; }
 #project-actions { height: 3; align-vertical: middle; }
 .has-project #project-section {
     width: 100%; height: 1; border: none; padding: 0; background: $background;
 }
-.has-project #project-heading, .has-project #project-hint { display: none; }
+.has-project #project-heading, .has-project #project-hint, .has-project #setup-feedback { display: none; }
 #instance-actions { height: 3; align-vertical: middle; }
 .no-project #instance-actions, .no-project #workbench-body { display: none; }
 #workbench-body { height: 1fr; min-height: 22; padding-bottom: 1; }
@@ -66,11 +68,6 @@ Button.compact:disabled { background: $surface; color: $text-disabled; text-styl
     height: 1fr; min-height: 3; overflow: auto auto; scrollbar-size: 1 1; scrollbar-gutter: stable;
     background: $surface; scrollbar-background: $surface;
 }
-#workspace.no-project.has-output { align: center top; overflow-y: auto; scrollbar-gutter: stable; }
-#workspace.no-project.has-output #workbench-body { display: block; height: 12; min-height: 12; margin-top: 1; padding: 0; }
-.no-project.has-output #plugin-section, .no-project.has-output #plugin-editor { display: none; }
-.no-project.has-output #detail-column { width: 100%; height: 12; min-height: 12; margin: 0; }
-.no-project.has-output #result-pane { height: 12; min-height: 12; margin-top: 0; }
 #workspace.short { overflow-y: auto; }
 .short #workbench-body { height: 22; }
 #workspace.narrow { padding: 0 1; overflow-y: auto; }
