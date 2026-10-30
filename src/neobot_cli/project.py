@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .errors import CliError
 from .host_release import HOST_PACKAGES, HOST_REPOSITORY, HOST_REVISION
+from .progress import observer, stage
 
 MARKER = ".neobot/project.json"
 
@@ -64,10 +65,19 @@ def uv_command() -> str:
 
 def run_uv(project: Workspace, arguments: list[str], *, timeout: float = 600) -> subprocess.CompletedProcess:
     environment = os.environ.copy()
-    environment.update(NEOBOT_DATA_DIR=str(project.data_dir), NEOBOT_ENV_FILE=str(project.env_file))
+    environment.update(
+        NEOBOT_DATA_DIR=str(project.data_dir), NEOBOT_ENV_FILE=str(project.env_file), PYTHONIOENCODING="utf-8"
+    )
     # Never inherit the tool's activated environment into the user's instance.
     environment.pop("VIRTUAL_ENV", None)
     try:
+        if sink := observer.get():
+            from .command_output import run_streamed
+
+            environment.update(UV_NO_PROGRESS="1", NO_COLOR="1", PYTHONUNBUFFERED="1")
+            return run_streamed(
+                [uv_command(), *arguments], cwd=project.root, env=environment, timeout=timeout, sink=sink
+            )
         return subprocess.run(
             [uv_command(), *arguments],
             cwd=project.root,
@@ -79,7 +89,7 @@ def run_uv(project: Workspace, arguments: list[str], *, timeout: float = 600) ->
             timeout=timeout,
         )
     except subprocess.TimeoutExpired as exc:
-        raise CliError("PROCESS_TIMEOUT", "操作超时，请查看实例日志后重试。") from exc
+        raise CliError("PROCESS_TIMEOUT", "操作超时。", hint="请查看活动输出，检查网络或依赖后重试。") from exc
 
 
 def write_marker(project: Workspace, *, directory: Path | None = None) -> None:
@@ -247,6 +257,7 @@ def _publish_project(staging: Path, root: Path, original: os.stat_result | None)
 
 
 def create_project(path: str | Path, *, source: Path | None = None, sync: bool = True) -> Workspace:
+    stage("1/3 · 检查目录", "新目录和已有空目录都可以创建。")
     root = Path(path).expanduser().absolute()
     original = _creation_target(root)
     if source is not None:
@@ -263,6 +274,7 @@ def create_project(path: str | Path, *, source: Path | None = None, sync: bool =
             details={"path": str(root.parent), "error": str(exc)},
         ) from exc
     # Generate privately, then publish without overwriting an existing target.
+    stage("2/3 · 写入工程", "准备配置、数据目录和插件目录。")
     with tempfile.TemporaryDirectory(prefix=".neo-new-", dir=root.parent) as directory:
         staging = Path(directory)
         (staging / "data/plugins").mkdir(parents=True)
@@ -299,11 +311,21 @@ def create_project(path: str | Path, *, source: Path | None = None, sync: bool =
         write_marker(project, directory=staging)
         _publish_project(staging, root, original)
     if sync:
-        result = run_uv(project, ["sync", "--project", str(project.root)])
+        stage("3/3 · 准备环境", "首次需要下载 Python、宿主和依赖，耗时取决于网络；可随时查看实时输出。")
+        try:
+            result = run_uv(project, ["sync", "--project", str(project.root)])
+        except (CliError, OSError) as exc:
+            raise CliError(
+                "SYNC_FAILED",
+                "工程已创建，但环境准备未完成。",
+                hint="工程文件已保留；检查网络和 uv 后，点击“同步环境”重试。",
+                details={"root": str(root), "cause": exc.to_dict() if isinstance(exc, CliError) else str(exc)},
+            ) from exc
         if result.returncode:
             raise CliError(
                 "SYNC_FAILED",
                 "工程已创建，但环境准备失败。可修正网络或依赖后执行 neo sync。",
+                hint="无需重新创建；点击“同步环境”即可重试。",
                 details={"root": str(root), "stderr": result.stderr[-4000:]},
             )
     return project

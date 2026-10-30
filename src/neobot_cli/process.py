@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from .control import ControlClient
 from .errors import CliError
 from .project import Workspace, uv_command
+from .progress import stage
 
 
 @contextmanager
@@ -39,6 +40,7 @@ def _launch_lock(project: Workspace):
 
 
 def start(project: Workspace, *, timeout: float = 45) -> dict:
+    stage("检查实例状态", "已运行的实例会直接接入。")
     client = ControlClient(project, timeout=2)
     with _launch_lock(project):
         try:
@@ -72,6 +74,7 @@ def start(project: Workspace, *, timeout: float = 45) -> dict:
                 **options,
             )
         deadline = time.monotonic() + timeout
+        stage("等待机器人就绪", "正在启动实例，准备控制服务；启动失败可在概览中读取机器人日志。")
         while time.monotonic() < deadline:
             try:
                 return client.status()
